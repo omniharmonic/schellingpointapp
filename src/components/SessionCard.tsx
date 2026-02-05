@@ -96,7 +96,7 @@ export function SessionCard({
               <button
                 onClick={() => onToggleFavorite(session.id)}
                 className={cn(
-                  'p-2 rounded-full transition-colors',
+                  'p-2.5 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center',
                   isFavorited
                     ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20'
                     : 'text-muted-foreground hover:text-red-500 hover:bg-muted'
@@ -162,7 +162,6 @@ export function SessionCard({
                 <Button
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
                   onClick={handleRemoveVote}
                   disabled={userVotes === 0}
                 >
@@ -177,7 +176,6 @@ export function SessionCard({
                 <Button
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
                   onClick={handleAddVote}
                   disabled={!canAddVote}
                 >

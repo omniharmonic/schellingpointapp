@@ -369,10 +369,10 @@ export function OnboardingModal({ userId, email, onComplete }: OnboardingModalPr
                       key={interest}
                       type="button"
                       onClick={() => toggleInterest(interest)}
-                      className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                      className="inline-flex items-center rounded-full border px-4 py-2.5 text-sm min-h-[44px] hover:bg-accent transition-colors"
                       disabled={interests.length >= 5}
                     >
-                      <Plus className="h-3 w-3 mr-1" />
+                      <Plus className="h-4 w-4 mr-1.5" />
                       {interest}
                     </button>
                   ))}

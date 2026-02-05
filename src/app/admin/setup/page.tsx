@@ -372,7 +372,7 @@ export default function AdminSetupPage() {
             <button
               onClick={() => setActiveTab('venues')}
               className={cn(
-                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2',
+                'px-4 py-3 min-h-[44px] text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2',
                 activeTab === 'venues'
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -384,7 +384,7 @@ export default function AdminSetupPage() {
             <button
               onClick={() => setActiveTab('timeslots')}
               className={cn(
-                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2',
+                'px-4 py-3 min-h-[44px] text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2',
                 activeTab === 'timeslots'
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground'

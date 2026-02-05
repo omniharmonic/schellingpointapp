@@ -123,14 +123,14 @@ export function DashboardLayout({ children, creditsSpent = 0 }: DashboardLayoutP
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md whitespace-nowrap transition-colors',
+                    'flex items-center gap-2 px-3 py-2.5 min-h-[44px] text-sm font-medium rounded-md whitespace-nowrap transition-colors',
                     isActive
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   )}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className="hidden sm:inline">{item.label}</span>
                 </Link>
               )
             })}
@@ -143,10 +143,10 @@ export function DashboardLayout({ children, creditsSpent = 0 }: DashboardLayoutP
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2.5 min-h-[44px] text-sm font-medium rounded-md whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className="hidden sm:inline">{item.label}</span>
                 </Link>
               )
             })}

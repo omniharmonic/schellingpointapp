@@ -105,7 +105,7 @@ export default function LandingPage() {
           <p className="text-muted-foreground mb-8">
             You have 100 credits to distribute. The cost of each additional vote increases quadratically.
           </p>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
               { votes: 1, cost: 1 },
               { votes: 2, cost: 4 },
