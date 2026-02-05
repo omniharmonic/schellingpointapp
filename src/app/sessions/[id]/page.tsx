@@ -1,0 +1,642 @@
+'use client'
+
+import * as React from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
+import {
+  ArrowLeft,
+  MapPin,
+  Users,
+  Heart,
+  Share2,
+  Calendar,
+  Mic,
+  Wrench,
+  MessageSquare,
+  Monitor,
+  User,
+  Loader2,
+  Vote,
+  Clock,
+  Plus,
+  Minus,
+  ExternalLink,
+} from 'lucide-react'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { DashboardLayout } from '@/components/DashboardLayout'
+import { useAuth } from '@/hooks/useAuth'
+import { votesToCredits } from '@/lib/utils'
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const TOTAL_CREDITS = 100
+
+const formatIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+  talk: Mic,
+  workshop: Wrench,
+  discussion: MessageSquare,
+  panel: Users,
+  demo: Monitor,
+}
+
+const formatDescriptions: Record<string, string> = {
+  talk: 'A presentation by one speaker',
+  workshop: 'Hands-on interactive session',
+  discussion: 'Facilitated group conversation',
+  panel: 'Multiple speakers discuss a topic',
+  demo: 'Live demonstration of a project or tool',
+}
+
+function getAccessToken(): string | null {
+  const storageKey = `sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`
+  const stored = localStorage.getItem(storageKey)
+  if (stored) {
+    try {
+      const session = JSON.parse(stored)
+      return session?.access_token || null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+export default function SessionDetailPage() {
+  const router = useRouter()
+  const params = useParams()
+  const sessionId = params.id as string
+  const { user, profile } = useAuth()
+
+  const [session, setSession] = React.useState<any>(null)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [userVotes, setUserVotes] = React.useState(0)
+  const [isFavorited, setIsFavorited] = React.useState(false)
+  const [allUserVotes, setAllUserVotes] = React.useState<Record<string, number>>({})
+
+  // Calculate credits spent
+  const creditsSpent = React.useMemo(() => {
+    return Object.values(allUserVotes).reduce((sum, votes) => sum + votesToCredits(votes), 0)
+  }, [allUserVotes])
+
+  const creditsRemaining = TOTAL_CREDITS - creditsSpent
+
+  // Fetch session data
+  React.useEffect(() => {
+    const fetchSession = async () => {
+      try {
+        const response = await fetch(
+          `${SUPABASE_URL}/rest/v1/sessions?id=eq.${sessionId}&select=*,venue:venues(*),time_slot:time_slots(*)`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+            },
+          }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.length > 0) {
+            setSession(data[0])
+          } else {
+            setError('Session not found')
+          }
+        } else {
+          setError('Failed to load session')
+        }
+      } catch (err) {
+        console.error('Error fetching session:', err)
+        setError('Failed to load session')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchSession()
+  }, [sessionId])
+
+  // Fetch user's votes and favorites
+  React.useEffect(() => {
+    if (!user) return
+
+    const fetchUserData = async () => {
+      const token = getAccessToken()
+      if (!token) return
+
+      try {
+        // Fetch all user votes
+        const votesResponse = await fetch(
+          `${SUPABASE_URL}/rest/v1/votes?user_id=eq.${user.id}&select=session_id,vote_count`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        )
+
+        if (votesResponse.ok) {
+          const votesData = await votesResponse.json()
+          const votesMap: Record<string, number> = {}
+          votesData.forEach((v: any) => {
+            votesMap[v.session_id] = v.vote_count
+          })
+          setAllUserVotes(votesMap)
+          setUserVotes(votesMap[sessionId] || 0)
+        }
+
+        // Fetch favorites
+        const favResponse = await fetch(
+          `${SUPABASE_URL}/rest/v1/favorites?user_id=eq.${user.id}&session_id=eq.${sessionId}&select=id`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        )
+
+        if (favResponse.ok) {
+          const favData = await favResponse.json()
+          setIsFavorited(favData.length > 0)
+        }
+      } catch (err) {
+        console.error('Error fetching user data:', err)
+      }
+    }
+
+    fetchUserData()
+  }, [user, sessionId])
+
+  // Handle vote change
+  const handleVote = async (delta: number) => {
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    const token = getAccessToken()
+    if (!token) {
+      router.push('/login')
+      return
+    }
+
+    const newVoteCount = Math.max(0, userVotes + delta)
+    const oldCredits = votesToCredits(userVotes)
+    const newCredits = votesToCredits(newVoteCount)
+    const creditDiff = newCredits - oldCredits
+
+    // Check if user has enough credits
+    if (creditsSpent + creditDiff > TOTAL_CREDITS) {
+      return
+    }
+
+    // Optimistic update
+    setUserVotes(newVoteCount)
+    setAllUserVotes(prev => ({ ...prev, [sessionId]: newVoteCount }))
+
+    try {
+      if (newVoteCount === 0) {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/votes?user_id=eq.${user.id}&session_id=eq.${sessionId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        )
+      } else {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/votes?on_conflict=user_id,session_id`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates',
+            },
+            body: JSON.stringify({
+              user_id: user.id,
+              session_id: sessionId,
+              vote_count: newVoteCount,
+              credits_spent: newCredits,
+            }),
+          }
+        )
+      }
+
+      // Refresh session to get updated vote counts
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/sessions?id=eq.${sessionId}&select=*,venue:venues(*),time_slot:time_slots(*)`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+          },
+        }
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.length > 0) {
+          setSession(data[0])
+        }
+      }
+    } catch (err) {
+      console.error('Error voting:', err)
+      setUserVotes(userVotes)
+      setAllUserVotes(prev => ({ ...prev, [sessionId]: userVotes }))
+    }
+  }
+
+  // Handle favorite toggle
+  const handleToggleFavorite = async () => {
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    const token = getAccessToken()
+    if (!token) {
+      router.push('/login')
+      return
+    }
+
+    // Optimistic update
+    setIsFavorited(!isFavorited)
+
+    try {
+      if (isFavorited) {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/favorites?user_id=eq.${user.id}&session_id=eq.${sessionId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        )
+      } else {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/favorites`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              user_id: user.id,
+              session_id: sessionId,
+            }),
+          }
+        )
+      }
+    } catch (err) {
+      console.error('Error toggling favorite:', err)
+      setIsFavorited(!isFavorited)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout creditsSpent={creditsSpent}>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error || !session) {
+    return (
+      <DashboardLayout creditsSpent={creditsSpent}>
+        <div className="space-y-4">
+          <Button variant="ghost" onClick={() => router.back()} className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          <div className="text-center py-12">
+            <p className="text-destructive mb-4">{error || 'Session not found'}</p>
+            <Button onClick={() => router.push('/sessions')}>View All Sessions</Button>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const FormatIcon = formatIcons[session.format] || Mic
+  const nextVoteCost = 2 * userVotes + 1
+  const canAddVote = creditsRemaining >= nextVoteCost
+
+  return (
+    <DashboardLayout creditsSpent={creditsSpent}>
+      <div className="space-y-6">
+        {/* Back Button */}
+        <Button variant="ghost" onClick={() => router.back()} className="gap-2">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Sessions
+        </Button>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Header Card */}
+            <Card className="p-6">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                    <FormatIcon className="h-4 w-4" />
+                    <span className="capitalize">{session.format}</span>
+                    <span className="text-muted-foreground/50">•</span>
+                    <Clock className="h-4 w-4" />
+                    <span>{session.duration} min</span>
+                    <span className="text-muted-foreground/50">•</span>
+                    <Badge variant={session.status === 'scheduled' ? 'default' : 'secondary'}>
+                      {session.status}
+                    </Badge>
+                  </div>
+
+                  <h1 className="text-3xl font-bold mb-4">{session.title}</h1>
+
+                  {session.host_name && (
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <span className="text-muted-foreground">Hosted by</span>
+                      <span className="font-medium">{session.host_name}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleToggleFavorite}
+                    className={isFavorited ? 'text-red-500' : ''}
+                  >
+                    <Heart className={isFavorited ? 'fill-current' : ''} />
+                  </Button>
+                  <Button variant="ghost" size="icon">
+                    <Share2 className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Tags */}
+              {session.topic_tags && session.topic_tags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {session.topic_tags.map((tag: string) => (
+                    <Badge key={tag} variant="secondary">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Venue & Schedule */}
+            {(session.venue || session.time_slot || session.is_self_hosted) && (
+              <Card className="p-6 bg-primary/5 border-primary/20">
+                <div className="grid sm:grid-cols-2 gap-6">
+                  {session.is_self_hosted ? (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <MapPin className="h-5 w-5 text-primary" />
+                        <h3 className="font-semibold">Self-Hosted Location</h3>
+                      </div>
+                      <Badge variant="secondary" className="mb-2">Self-Hosted</Badge>
+                      {session.custom_location ? (
+                        <p className="text-muted-foreground whitespace-pre-wrap">
+                          {session.custom_location}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">
+                          Location details will be provided by the host
+                        </p>
+                      )}
+                    </div>
+                  ) : session.venue && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <MapPin className="h-5 w-5 text-primary" />
+                        <h3 className="font-semibold">Location</h3>
+                      </div>
+                      <p className="text-lg font-medium">{session.venue.name}</p>
+                      {session.venue.capacity && (
+                        <p className="text-sm text-muted-foreground">
+                          Capacity: {session.venue.capacity} people
+                        </p>
+                      )}
+                      {session.venue.features && session.venue.features.length > 0 && (
+                        <div className="flex gap-1 mt-2 flex-wrap">
+                          {session.venue.features.map((feature: string, i: number) => (
+                            <Badge key={i} variant="outline" className="text-xs">
+                              {feature}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {session.time_slot && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Calendar className="h-5 w-5 text-primary" />
+                        <h3 className="font-semibold">Schedule</h3>
+                      </div>
+                      <p className="text-lg font-medium">
+                        {new Date(session.time_slot.start_time).toLocaleDateString([], {
+                          weekday: 'long',
+                          month: 'long',
+                          day: 'numeric',
+                        })}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {new Date(session.time_slot.start_time).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                        {' - '}
+                        {new Date(session.time_slot.end_time).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                      {session.time_slot.label && (
+                        <Badge variant="outline" className="mt-2">
+                          {session.time_slot.label}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* Description */}
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold mb-4">About This Session</h2>
+              <div className="prose prose-sm max-w-none">
+                {session.description ? (
+                  session.description.split('\n').map((paragraph: string, i: number) => (
+                    <p key={i} className="text-muted-foreground mb-3">
+                      {paragraph}
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-muted-foreground italic">No description provided.</p>
+                )}
+              </div>
+            </Card>
+
+            {/* Format Info */}
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold mb-4">Session Format</h2>
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <FormatIcon className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-medium capitalize">{session.format}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {formatDescriptions[session.format] || 'Interactive session'}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Voting Card */}
+            <Card className="p-6">
+              <h3 className="font-semibold mb-4">Cast Your Votes</h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Total votes</span>
+                  <div className="flex items-center gap-1">
+                    <Vote className="h-4 w-4" />
+                    <span className="font-medium">{session.total_votes || 0}</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Total voters</span>
+                  <span className="font-medium">{session.voter_count || 0}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Credits allocated</span>
+                  <span className="font-medium">{session.total_credits || 0}</span>
+                </div>
+
+                {user && (
+                  <div className="pt-4 border-t">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm text-muted-foreground">Your votes</span>
+                      <span className="font-semibold">{userVotes}</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-4">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleVote(-1)}
+                        disabled={userVotes === 0}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <div className="min-w-[60px] text-center">
+                        <div className="text-2xl font-bold">{userVotes}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {votesToCredits(userVotes)} credits
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleVote(1)}
+                        disabled={!canAddVote}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {!canAddVote && userVotes > 0 && (
+                      <p className="text-xs text-muted-foreground text-center mt-2">
+                        Next vote costs {nextVoteCost} credits
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {!user && (
+                  <div className="pt-4 border-t text-center">
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Sign in to vote on this session
+                    </p>
+                    <Button asChild className="w-full">
+                      <Link href="/login">Sign In</Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card className="p-6">
+              <h3 className="font-semibold mb-4">Quick Actions</h3>
+              <div className="space-y-2">
+                <Button
+                  className="w-full justify-start"
+                  variant={isFavorited ? "default" : "outline"}
+                  onClick={handleToggleFavorite}
+                >
+                  <Heart className={`h-4 w-4 mr-2 ${isFavorited ? 'fill-current' : ''}`} />
+                  {isFavorited ? 'Saved to My Schedule' : 'Add to My Schedule'}
+                </Button>
+                <Button className="w-full justify-start" variant="outline">
+                  <Share2 className="h-4 w-4 mr-2" />
+                  Share Session
+                </Button>
+                {session.time_slot && (
+                  <Button className="w-full justify-start" variant="outline">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Add to Calendar
+                  </Button>
+                )}
+              </div>
+            </Card>
+
+            {/* Stats Card */}
+            <Card className="p-6 bg-muted/30">
+              <h3 className="font-semibold mb-4">Session Stats</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Total Votes</span>
+                  <span className="font-bold text-lg">{session.total_votes || 0}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Unique Voters</span>
+                  <span className="font-bold text-lg">{session.voter_count || 0}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Credits Committed</span>
+                  <span className="font-bold text-lg">{session.total_credits || 0}</span>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </DashboardLayout>
+  )
+}
